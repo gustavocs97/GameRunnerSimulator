@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Drawing;
 
 // ====== MODELOS DO JSON ======
+// O serializador do C# ignorará automaticamente os campos novos (ex: content_classification)
 public class GameEntry
 {
     public string Name { get; set; } = "";
@@ -31,11 +34,14 @@ public class MainForm : Form
     private ListBox lstGames;
     private ListBox lstExecs;
     private Button btnStart;
+    private Button btnUpdate; // Novo botão de atualização
     private Label lblStatus;
 
     private List<GameEntry> allGames = new();
     private readonly string exePath;
     private readonly string exeFolder;
+    private readonly string jsonFileName = "games.json"; // Nome do arquivo atualizado
+    private readonly string jsonUrl = "https://cdn.discordapp.com/detectables/games.json";
 
     public MainForm(string exePath)
     {
@@ -48,13 +54,15 @@ public class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
 
         // Controles
-        txtSearch = new TextBox { Left = 10, Top = 10, Width = 400, PlaceholderText = "Procurar jogo..." };
+        txtSearch = new TextBox { Left = 10, Top = 10, Width = 300, PlaceholderText = "Procurar jogo..." };
+        btnUpdate = new Button { Left = 320, Top = 9, Width = 150, Height = 25, Text = "Atualizar Lista" };
         lstGames = new ListBox { Left = 10, Top = 40, Width = 300, Height = 260 };
         lstExecs = new ListBox { Left = 320, Top = 40, Width = 350, Height = 260 };
         btnStart = new Button { Left = 10, Top = 310, Width = 150, Height = 30, Text = "Iniciar fake" };
         lblStatus = new Label { Left = 170, Top = 315, Width = 500, Height = 20, ForeColor = Color.DarkBlue };
 
         Controls.Add(txtSearch);
+        Controls.Add(btnUpdate);
         Controls.Add(lstGames);
         Controls.Add(lstExecs);
         Controls.Add(btnStart);
@@ -63,21 +71,60 @@ public class MainForm : Form
         txtSearch.TextChanged += (s, e) => ApplyFilter();
         lstGames.SelectedIndexChanged += (s, e) => LoadExecutables();
         btnStart.Click += (s, e) => StartFake();
+        
+        // Evento assíncrono para o botão de atualização
+        btnUpdate.Click += async (s, e) => await UpdateJsonAsync();
 
-        Load += (s, e) => LoadJson();
+        Load += async (s, e) => 
+        {
+            string jsonPath = Path.Combine(exeFolder, jsonFileName);
+            // Se o arquivo não existir na primeira vez, baixa automaticamente
+            if (!File.Exists(jsonPath))
+            {
+                await UpdateJsonAsync();
+            }
+            else
+            {
+                LoadJson();
+            }
+        };
+    }
+
+    private async Task UpdateJsonAsync()
+    {
+        try
+        {
+            btnUpdate.Enabled = false;
+            lblStatus.Text = "Baixando lista de jogos do Discord...";
+            
+            using HttpClient client = new HttpClient();
+            string json = await client.GetStringAsync(jsonUrl);
+            
+            string jsonPath = Path.Combine(exeFolder, jsonFileName);
+            File.WriteAllText(jsonPath, json);
+            
+            lblStatus.Text = "Download concluído! Atualizando a interface...";
+            LoadJson(); // Recarrega a lista lendo o novo arquivo
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Erro ao baixar o arquivo games.json:\n" + ex.Message,
+                "Erro de Conexão", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            lblStatus.Text = "Falha ao atualizar a lista.";
+        }
+        finally
+        {
+            btnUpdate.Enabled = true;
+        }
     }
 
     private void LoadJson()
     {
         try
         {
-            string jsonPath = Path.Combine(exeFolder, "detectable.json");
+            string jsonPath = Path.Combine(exeFolder, jsonFileName);
             if (!File.Exists(jsonPath))
-            {
-                MessageBox.Show($"detectable.json não encontrado em:{jsonPath}",
-                    "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
-            }
 
             string json = File.ReadAllText(jsonPath);
             var options = new JsonSerializerOptions
@@ -86,7 +133,7 @@ public class MainForm : Form
             };
             allGames = JsonSerializer.Deserialize<List<GameEntry>>(json, options) ?? new();
 
-            // só jogos que tenham executáveis win32
+            // Só jogos que tenham executáveis win32
             allGames = allGames
                 .Where(g => g.Executables != null && g.Executables.Any(ex => ex.Os == "win32"))
                 .OrderBy(g => g.Name)
@@ -96,11 +143,11 @@ public class MainForm : Form
             foreach (var g in allGames)
                 lstGames.Items.Add(g);
 
-            lblStatus.Text = $"Carregado {allGames.Count} jogos do detectable.json";
+            lblStatus.Text = $"Carregado {allGames.Count} jogos do {jsonFileName}";
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Erro ao ler detectable.json: " + ex.Message,
+            MessageBox.Show($"Erro ao ler {jsonFileName}: " + ex.Message,
                 "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
