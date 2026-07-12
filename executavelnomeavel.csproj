@@ -5,5 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 </Project>
